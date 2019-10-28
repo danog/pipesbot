@@ -2,7 +2,7 @@ theme: jekyll-theme-cayman
 gems:
   - jekyll-sitemap
   - jekyll-seo-tag
-url: https://magna.madelineproto.xyz
+url: https://pipes.madelineproto.xyz
 
 twitter:
   username: DaniilGentili
