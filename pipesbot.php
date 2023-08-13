@@ -1,5 +1,6 @@
 #!/usr/bin/env php
 <?php
+
 /**
  * Pipes bot.
  *
@@ -15,20 +16,35 @@
  * @author    Daniil Gentili <daniil@daniil.it>
  * @copyright 2016-2019 Daniil Gentili <daniil@daniil.it>
  * @license   https://opensource.org/licenses/AGPL-3.0 AGPLv3
- *
  * @link https://docs.madelineproto.xyz MadelineProto documentation
  */
+use danog\MadelineProto\API;
+use danog\MadelineProto\EventHandler;
+use danog\MadelineProto\Exception;
+use danog\MadelineProto\RPCErrorException;
 
-if (!\file_exists('madeline.php')) {
-    \copy('https://phar.madelineproto.xyz/madeline.php', 'madeline.php');
+if (!file_exists('madeline.php')) {
+    copy('https://phar.madelineproto.xyz/madeline.php', 'madeline.php');
 }
 include 'madeline.php';
 
+// Login as a user
+$u = new API('pipesuser.madeline');
+if (!$u->getSelf()) {
+    if (!$_GET) {
+        $u->echo("Please login as a user!");
+    }
+    $u->start();
+}
+if (!$u->isSelfUser()) {
+    throw new AssertionError("You must login as a user! Please delete the user.madeline folder to continue.");
+}
+unset($u);
 
 /**
  * Event handler class.
  */
-class pipesbot extends \danog\MadelineProto\EventHandler
+class pipesbot extends EventHandler
 {
     const WELCOME = "This bot can create a pipeline between inline bots.
 To use it, simply type an inline query with the following syntax:
@@ -58,18 +74,21 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
 
     /**
      * User instance of MadelineProto.
-     *
-     * @var \danog\MadelineProto\API
      */
-    private $u;
+    private API $u;
+
+    public function onStart(): void
+    {
+        $this->u = new API('pipesuser.madeline');
+    }
 
     private function inputify(&$stuff)
     {
-        $stuff['_'] = 'input'.\ucfirst($stuff['_']);
+        $stuff['_'] = 'input'.ucfirst($stuff['_']);
 
         return $stuff;
     }
-    private function translatetext(&$value)
+    private function translatetext(&$value): void
     {
         $this->inputify($value);
         if (isset($value['entities'])) {
@@ -86,29 +105,29 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
     private function translate(&$value, $key)
     {
         switch ($value['_']) {
-        case 'botInlineResult':
-            $value['_'] = 'inputBotInlineResult';
-            $this->translatetext($value['send_message']);
+            case 'botInlineResult':
+                $value['_'] = 'inputBotInlineResult';
+                $this->translatetext($value['send_message']);
 
-            return $value;
-        case 'botInlineMediaResult':
-            if (isset($value['game'])) {
-                throw new \danog\MadelineProto\Exception('Games are not supported.');
-            }
-            if (isset($value['photo'])) {
-                $value['_'] = 'inputBotInlineResultPhoto';
-            }
-            if (isset($value['document'])) {
-                $value['_'] = 'inputBotInlineResultDocument';
-            }
-            $this->translatetext($value['send_message']);
+                return $value;
+            case 'botInlineMediaResult':
+                if (isset($value['game'])) {
+                    throw new Exception('Games are not supported.');
+                }
+                if (isset($value['photo'])) {
+                    $value['_'] = 'inputBotInlineResultPhoto';
+                }
+                if (isset($value['document'])) {
+                    $value['_'] = 'inputBotInlineResultDocument';
+                }
+                $this->translatetext($value['send_message']);
 
-            return $value;
+                return $value;
         }
     }
     public function onUpdateNewChannelMessage($update)
     {
-        yield $this->onUpdateNewMessage($update);
+        $this->onUpdateNewMessage($update);
     }
     public function onUpdateNewMessage($update)
     {
@@ -116,10 +135,10 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
             return;
         }
         try {
-            if (\strpos($update['message']['message'], '/start') === 0) {
-                yield $this->messages->sendMessage(['peer' => $update, 'message' => self::WELCOME, 'reply_to_msg_id' => $update['message']['id'], 'parse_mode' => 'markdown']);
+            if (strpos($update['message']['message'], '/start') === 0) {
+                $this->messages->sendMessage(['peer' => $update, 'message' => self::WELCOME, 'reply_to_msg_id' => $update['message']['id'], 'parse_mode' => 'markdown']);
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger($e);
         }
     }
@@ -130,26 +149,26 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
             $result = ['query_id' => $update['query_id'], 'results' => [], 'cache_time' => 0];
 
             if ($update['query'] === '') {
-                yield $this->messages->setInlineBotResults($result + self::SWITCH_PM);
+                $this->messages->setInlineBotResults($result + self::SWITCH_PM);
             } else {
                 $result['private'] = true;
-                yield $this->messages->setInlineBotResults(yield $this->processNonEmptyQuery($update['query'], $update['user_id'], $result));
+                $this->messages->setInlineBotResults($this->processNonEmptyQuery($update['query'], $update['user_id'], $result));
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             try {
-                yield $this->messages->sendMessage(['peer' => self::ADMIN, 'message' => $e->getCode().': '.$e->getMessage().PHP_EOL.$e->getTraceAsString()]);
-                //yield $this->messages->sendMessage(['peer' => $update['user_id'], 'message' => $e->getCode().': '.$e->getMessage().PHP_EOL.$e->getTraceAsString()]);
-            } catch (\danog\MadelineProto\RPCErrorException $e) {
+                $this->messages->sendMessage(['peer' => self::ADMIN, 'message' => $e->getCode().': '.$e->getMessage().PHP_EOL.$e->getTraceAsString()]);
+                //$this->messages->sendMessage(['peer' => $update['user_id'], 'message' => $e->getCode().': '.$e->getMessage().PHP_EOL.$e->getTraceAsString()]);
+            } catch (RPCErrorException $e) {
                 $this->logger($e);
-            } catch (\danog\MadelineProto\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger($e);
             }
 
             try {
-                yield $this->messages->setInlineBotResults($result + self::SWITCH_PM);
-            } catch (\danog\MadelineProto\RPCErrorException $e) {
+                $this->messages->setInlineBotResults($result + self::SWITCH_PM);
+            } catch (RPCErrorException $e) {
                 $this->logger($e);
-            } catch (\danog\MadelineProto\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger($e);
             }
         }
@@ -157,19 +176,19 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
 
     private function processNonEmptyQuery($query, $user_id, $toset)
     {
-        if (\preg_match('|(.*)\$\s*$|', $query, $content)) {
-            $exploded = \array_map('trim', \explode('|', $content[1]));
-            $query = \array_shift($exploded);
+        if (preg_match('|(.*)\$\s*$|', $query, $content)) {
+            $exploded = array_map('trim', explode('|', $content[1]));
+            $query = array_shift($exploded);
 
             foreach ($exploded as $current => $botSelector) {
-                if (\strpos($botSelector, ':') === false) {
+                if (strpos($botSelector, ':') === false) {
                     $botSelector .= ':';
                 }
-                list($bot, $selector) = \explode(':', $botSelector);
-                if ($bot === '' || yield $this->u->getInfo($bot)['bot_api_id'] === yield $this->getSelf()['id']) {
+                [$bot, $selector] = explode(':', $botSelector);
+                if ($bot === '' || $this->u->getInfo($bot)['bot_api_id'] === $this->getSelf()['id']) {
                     return $toset + self::SWITCH_PM;
                 }
-                $results = yield $this->u->messages->getInlineBotResults(['bot' => $bot, 'peer' => $user_id, 'query' => $query, 'offset' => '0']);
+                $results = $this->u->messages->getInlineBotResults(['bot' => $bot, 'peer' => $user_id, 'query' => $query, 'offset' => '0']);
                 $this->logger($results);
                 if (isset($results['switch_pm'])) {
                     $toset['switch_pm'] = $results['switch_pm'];
@@ -178,13 +197,13 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
                 $toset['gallery'] = $results['gallery'];
                 $toset['results'] = [];
 
-                if (\is_numeric($selector)) {
+                if (is_numeric($selector)) {
                     $toset['results'][0] = $results['results'][$selector - 1];
                 } elseif ($selector === '') {
                     $toset['results'] = $results['results'];
                 } else {
                     foreach ($results['results'] as $result) {
-                        if (isset($result['send_message']['message']) && \preg_match('|'.$select.'|', $result['send_message']['message'])) {
+                        if (isset($result['send_message']['message']) && preg_match('|'.$select.'|', $result['send_message']['message'])) {
                             $toset['results'][0] = $result;
                         }
                     }
@@ -192,7 +211,7 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
                 if (!isset($toset['results'][0])) {
                     $toset['results'] = $results['results'];
                 }
-                if (\count($exploded) - 1 === $current || !isset($toset['results'][0]['send_message']['message'])) {
+                if (count($exploded) - 1 === $current || !isset($toset['results'][0]['send_message']['message'])) {
                     break;
                 }
                 $query = $toset['results'][0]['send_message']['message'];
@@ -201,34 +220,10 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
         if (empty($toset['results'])) {
             $toset += self::SWITCH_PM;
         } else {
-            \array_walk($toset['results'], [$this, 'translate']);
+            array_walk($toset['results'], [$this, 'translate']);
         }
         return $toset;
     }
-
-    public function setUMadelineProto($uMadelineProto)
-    {
-        // This is some crazy bug I still don't get
-        $this->u = $uMadelineProto[0];
-    }
 }
 
-
-$uMadelineProto = new \danog\MadelineProto\API('pipesuser.madeline');
-$uMadelineProto->async(true);
-
-$uMadelineProto->loop(function () use ($uMadelineProto) {
-    yield $uMadelineProto->echo("User login: ".PHP_EOL);
-    yield $uMadelineProto->start();
-});
-
-$MadelineProto = new \danog\MadelineProto\API('pipesbot.madeline');
-$MadelineProto->async(true);
-$MadelineProto->loop(function () use ($MadelineProto, $uMadelineProto) {
-    yield $MadelineProto->echo("Bot login: ".PHP_EOL);
-    yield $MadelineProto->start();
-    yield $MadelineProto->setEventHandler(PipesBot::class);
-    $MadelineProto->getEventHandler()->setUMadelineProto($uMadelineProto);
-});
-
-$MadelineProto->loop();
+PipesBot::startAndLoopBot('pipesbot.madeline', '<token>');
