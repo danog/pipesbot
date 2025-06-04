@@ -20,7 +20,12 @@
  */
 use danog\MadelineProto\API;
 use danog\MadelineProto\EventHandler;
+use danog\MadelineProto\EventHandler\Attributes\Handler;
+use danog\MadelineProto\EventHandler\Filter\FilterCommand;
+use danog\MadelineProto\EventHandler\Message;
+use danog\MadelineProto\EventHandler\SimpleFilter\Incoming;
 use danog\MadelineProto\Exception;
+use danog\MadelineProto\ParseMode;
 use danog\MadelineProto\RPCErrorException;
 
 if (!file_exists('madeline.php')) {
@@ -44,9 +49,9 @@ unset($u);
 /**
  * Event handler class.
  */
-class pipesbot extends EventHandler
+final class pipesbot extends EventHandler
 {
-    const WELCOME = "This bot can create a pipeline between inline bots.
+    public const WELCOME = "This bot can create a pipeline between inline bots.
 To use it, simply type an inline query with the following syntax:
 
 ```
@@ -69,8 +74,8 @@ Note that the query must be terminated by a \$.
 
 Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).";
 
-    const SWITCH_PM = ['switch_pm' => ['_' => 'inlineBotSwitchPM', 'text' => 'FAQ', 'start_param' => 'lel']];
-    const ADMIN = '@danogentili';
+    public const SWITCH_PM = ['switch_pm' => ['_' => 'inlineBotSwitchPM', 'text' => 'FAQ', 'start_param' => 'lel']];
+    public const ADMIN = '@danogentili';
 
     /**
      * User instance of MadelineProto.
@@ -84,7 +89,7 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
 
     private function inputify(&$stuff)
     {
-        $stuff['_'] = 'input'.ucfirst($stuff['_']);
+        $stuff['_'] = 'input'.ucfirst((string) $stuff['_']);
 
         return $stuff;
     }
@@ -125,24 +130,14 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
                 return $value;
         }
     }
-    public function onUpdateNewChannelMessage($update)
+
+    #[FilterCommand('start')]
+    public function handleStart(Incoming&Message $msg): void
     {
-        $this->onUpdateNewMessage($update);
+        $msg->reply(self::WELCOME, parseMode: ParseMode::MARKDOWN);
     }
-    public function onUpdateNewMessage($update)
-    {
-        if ($update['message']['out'] ?? false) {
-            return;
-        }
-        try {
-            if (strpos($update['message']['message'], '/start') === 0) {
-                $this->messages->sendMessage(['peer' => $update, 'message' => self::WELCOME, 'reply_to_msg_id' => $update['message']['id'], 'parse_mode' => 'markdown']);
-            }
-        } catch (Throwable $e) {
-            $this->logger($e);
-        }
-    }
-    public function onUpdateBotInlineQuery($update)
+
+    public function onUpdateBotInlineQuery($update): void
     {
         $this->logger("Got query ".$update['query']);
         try {
@@ -158,17 +153,13 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
             try {
                 $this->messages->sendMessage(['peer' => self::ADMIN, 'message' => $e->getCode().': '.$e->getMessage().PHP_EOL.$e->getTraceAsString()]);
                 //$this->messages->sendMessage(['peer' => $update['user_id'], 'message' => $e->getCode().': '.$e->getMessage().PHP_EOL.$e->getTraceAsString()]);
-            } catch (RPCErrorException $e) {
-                $this->logger($e);
-            } catch (Exception $e) {
+            } catch (RPCErrorException|Exception $e) {
                 $this->logger($e);
             }
 
             try {
                 $this->messages->setInlineBotResults($result + self::SWITCH_PM);
-            } catch (RPCErrorException $e) {
-                $this->logger($e);
-            } catch (Exception $e) {
+            } catch (RPCErrorException|Exception $e) {
                 $this->logger($e);
             }
         }
@@ -176,12 +167,12 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
 
     private function processNonEmptyQuery($query, $user_id, $toset)
     {
-        if (preg_match('|(.*)\$\s*$|', $query, $content)) {
+        if (preg_match('|(.*)\$\s*$|', (string) $query, $content)) {
             $exploded = array_map('trim', explode('|', $content[1]));
             $query = array_shift($exploded);
 
             foreach ($exploded as $current => $botSelector) {
-                if (strpos($botSelector, ':') === false) {
+                if (!str_contains($botSelector, ':')) {
                     $botSelector .= ':';
                 }
                 [$bot, $selector] = explode(':', $botSelector);
@@ -203,7 +194,7 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
                     $toset['results'] = $results['results'];
                 } else {
                     foreach ($results['results'] as $result) {
-                        if (isset($result['send_message']['message']) && preg_match('|'.$select.'|', $result['send_message']['message'])) {
+                        if (isset($result['send_message']['message']) && preg_match('|'.$select.'|', (string) $result['send_message']['message'])) {
                             $toset['results'][0] = $result;
                         }
                     }
@@ -220,7 +211,7 @@ Created by @daniilgentili using @MadelineProto (https://docs.madelineproto.xyz).
         if (empty($toset['results'])) {
             $toset += self::SWITCH_PM;
         } else {
-            array_walk($toset['results'], [$this, 'translate']);
+            array_walk($toset['results'], $this->translate(...));
         }
         return $toset;
     }
